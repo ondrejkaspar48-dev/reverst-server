@@ -24,6 +24,7 @@ export default {
         }
 
         try {
+            // Omezení počtu požadavků
             const ip = request.headers.get("CF-Connecting-IP") || "unknown";
             const { success } = await env.IP_LIMITER.limit({ key: ip });
 
@@ -33,6 +34,7 @@ export default {
                 }, 429);
             }
 
+            // Kontrola vstupního textu
             const body = await request.json();
             const text = body.text;
 
@@ -44,44 +46,74 @@ export default {
                 return reply({ error: "Text je příliš dlouhý." }, 400);
             }
 
-            const result = await env.AI.run(
-                "@cf/meta/llama-3.1-8b-instruct",
-                {
-                    messages: [
-                        {
-                            role: "system",
-                            content: `Jsi český korektor.
+            // Kontrola AI bindingu
+            if (!env.AI) {
+                console.error("ReversT: AI binding is missing.");
+
+                return reply({
+                    error: "AI není správně připojena.",
+                    stage: "AI_BINDING"
+                }, 500);
+            }
+
+            // Zpracování textu pomocí AI
+            let result;
+
+            try {
+                result = await env.AI.run(
+                    "@cf/meta/llama-3.1-8b-instruct",
+                    {
+                        messages: [
+                            {
+                                role: "system",
+                                content: `Jsi český korektor.
 Opravuj pravopis, gramatiku, interpunkci a překlepy.
 Zachovávej původní význam a styl autora.
 Neměň slang ani herní výrazy.
 Výrazy chestka, spawn, shop a store vždy zachovej přesně.
 Nevymýšlej nové informace.
 Vrať pouze opravený text bez vysvětlování.`
-                        },
-                        {
-                            role: "user",
-                            content: text
-                        }
-                    ],
-                    temperature: 0.2,
-                    max_tokens: 2048
-                }
-            );
+                            },
+                            {
+                                role: "user",
+                                content: text
+                            }
+                        ],
+                        temperature: 0.2,
+                        max_tokens: 2048
+                    }
+                );
+            } catch (error) {
+                console.error("ReversT AI invocation failed:", error);
 
-            const corrected = result.response;
+                return reply({
+                    error: "AI se nepodařilo spustit.",
+                    stage: "AI_RUN"
+                }, 502);
+            }
 
-            if (!corrected) {
-                return reply({ error: "AI nevrátila text." }, 502);
+            const corrected = result?.response;
+
+            if (typeof corrected !== "string" || !corrected.trim()) {
+                console.error("ReversT: AI returned an empty response.");
+
+                return reply({
+                    error: "AI nevrátila opravený text.",
+                    stage: "AI_RESPONSE"
+                }, 502);
             }
 
             return reply({
                 correctedText: corrected.trim()
             });
 
-} catch (error) {
-    console.error("ReversT AI error:", error);
+        } catch (error) {
+            console.error("ReversT AI error:", error);
 
-    return reply({
-        error: "Nepodařilo se zpracovat text."
-    }, 500);
-}
+            return reply({
+                error: "Nepodařilo se zpracovat text.",
+                stage: "GENERAL"
+            }, 500);
+        }
+    }
+};
