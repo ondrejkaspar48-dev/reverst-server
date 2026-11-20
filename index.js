@@ -24,7 +24,6 @@ export default {
         }
 
         try {
-            // Omezení počtu požadavků
             const ip = request.headers.get("CF-Connecting-IP") || "unknown";
             const { success } = await env.IP_LIMITER.limit({ key: ip });
 
@@ -34,7 +33,6 @@ export default {
                 }, 429);
             }
 
-            // Kontrola textu
             const body = await request.json();
             const text = body.text;
 
@@ -47,15 +45,12 @@ export default {
             }
 
             if (!env.AI) {
-                console.error("AI binding is missing.");
-
                 return reply({
                     error: "AI není správně připojena.",
                     stage: "AI_BINDING"
                 }, 500);
             }
 
-            // Korektura
             let result;
 
             try {
@@ -65,42 +60,55 @@ export default {
                         messages: [
                             {
                                 role: "system",
-                                content: `Jsi přesný český korektor. Nejsi přepisovač ani spisovatel.
+                                content: `Jsi přesný český korektor.
 
-TVŮJ ÚKOL:
-Oprav pouze skutečné pravopisné, gramatické a interpunkční chyby.
+Tvým úkolem je opravit pravopis, gramatiku, diakritiku a interpunkci.
 
-NEJDŮLEŽITĚJŠÍ PRAVIDLA:
+DŮLEŽITÁ PRAVIDLA:
 
-1. Zachovej původní význam každé věty.
-2. Zachovej původní slovní zásobu a pořadí slov, pokud oprava chyby nevyžaduje změnu.
-3. Nikdy nepřidávej slova jen proto, aby věta zněla přirozeněji.
-4. Nikdy neodebírej slova, která jsou v původním textu správně.
-5. Nepřidávej například slovo "si", pokud v původním textu není.
-6. Opravuj nespisovné tvary, pokud jde o skutečnou gramatickou chybu.
-7. Rozlišuj slovo "sem" podle kontextu:
-   - "Dneska sem byl doma." → "Dneska jsem byl doma."
-   - "Pojď sem." → "Pojď sem."
-8. Zachovávej hovorový styl autora, pokud není potřeba opravit gramatickou chybu.
-9. Zachovávej Minecraft slang a herní výrazy.
-10. Výrazy chestka, spawn, shop a store zachovávej přesně.
-11. Neměň názvy serverů, her, pluginů ani technické výrazy.
-12. Nepřidávej vysvětlení, komentáře ani uvozovky.
-13. Pokud je text správně, vrať ho beze změny.
+1. Na začátku každé věty používej velké písmeno.
+2. Doplňuj správnou českou diakritiku.
+3. Doplňuj čárky mezi větami a ve větách.
+4. Na konci oznamovací věty doplň tečku, pokud chybí.
+5. Na konci otázky doplň otazník.
+6. Rozpoznávej otázky podle jejich významu, nejen podle slovosledu.
+7. Zachovávej původní význam textu.
+8. Zachovávej původní slovní zásobu.
+9. Nepřidávej slova, která autor nenapsal.
+10. Neodebírej slova, která jsou správná.
+11. Nikdy nepřidávej například slovo "si", pokud v textu není.
+12. Rozlišuj "sem" a "jsem" podle kontextu.
+13. Zachovávej hovorový styl autora.
+14. Zachovávej Minecraft slang a herní výrazy.
+15. Výrazy chestka, spawn, shop a store zachovávej přesně.
+16. Neměň názvy serverů, her, pluginů ani technické výrazy.
+17. Nepřidávej vysvětlení ani komentáře.
+18. Vrať pouze opravený text.
 
 PŘÍKLADY:
 
-Vstup: Ahoj dneska sem byl na spawnu.
+Vstup: ahoj jak se mas
+Výstup: Ahoj, jak se máš?
+
+Vstup: dneska jsem byl doma
+Výstup: Dneska jsem byl doma.
+
+Vstup: kdy prijdes
+Výstup: Kdy přijdeš?
+
+Vstup: ahoj dneska sem byl na spawnu
 Výstup: Ahoj, dneska jsem byl na spawnu.
 
-Vstup: Koupil sem chestku v shopu.
+Vstup: koupil sem chestku v shopu
 Výstup: Koupil jsem chestku v shopu.
 
-Vstup: Pojď sem na spawn.
+Vstup: pojd sem na spawn
 Výstup: Pojď sem na spawn.
 
 Vstup: Dneska jsem byl na spawnu.
 Výstup: Dneska jsem byl na spawnu.
+
+Pokud je text již správný, neměň jeho význam ani slovní zásobu.
 
 Vrať pouze opravený text.`
                             },
@@ -125,8 +133,6 @@ Vrať pouze opravený text.`
             const corrected = result?.response;
 
             if (typeof corrected !== "string" || !corrected.trim()) {
-                console.error("AI returned an empty response.");
-
                 return reply({
                     error: "AI nevrátila opravený text.",
                     stage: "AI_RESPONSE"
