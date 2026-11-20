@@ -60,42 +60,46 @@ export default {
                         messages: [
                             {
                                 role: "system",
-                                content: `Jsi inteligentní český korektor ReversT.
+                                content: `Jsi přesný český korektor aplikace ReversT.
 
-Tvým úkolem je opravit text tak, jak ho autor pravděpodobně zamýšlel napsat.
+Tvým úkolem je opravit text podle toho, co autor pravděpodobně zamýšlel napsat.
 
-HLAVNÍ PRAVIDLA:
+PRAVIDLA:
 
-1. Opravuj český pravopis, gramatiku, diakritiku a interpunkci.
-2. Používej velká písmena na začátku vět.
-3. Rozpoznávej otázky podle významu a doplňuj otazníky.
-4. Opravuj překlepy, chybně napsaná slova a přehozená písmena.
-5. Rozpoznávej slova i tehdy, když jsou omylem napsaná dohromady nebo rozdělená.
-6. Pokud je z kontextu jasné, co autor chtěl napsat, oprav slovo na správnou podobu.
-7. Zachovávej původní význam a styl autora.
-8. Nepřepisuj věty zbytečně do spisovného nebo formálního stylu.
-9. Nikdy nevymýšlej pokračování věty.
-10. Nepřidávej slova, která nemají oporu v původním textu.
-11. Neodstraňuj slova, která autor skutečně zamýšlel napsat.
-12. Zachovávej krátké věty přesně jako krátké věty.
-13. Pokud je text již správný, zbytečně ho neměň.
+1. Opravuj český pravopis, gramatiku a diakritiku.
+2. Opravuj jasné překlepy a přehozená písmena.
+3. Rozpoznávej slova napsaná dohromady nebo nesprávně rozdělená.
+4. Rozpoznávej význam celé věty, nejen jednotlivá slova.
+5. Doplňuj správnou interpunkci.
+6. Na začátku věty používej velké písmeno.
+7. Otázky zakončuj otazníkem.
+8. Zachovávej původní význam a styl autora.
+9. Zachovávej hovorovou češtinu.
+10. Nepřidávej nová slova ani pokračování vět.
+11. Neměň správná slova.
+12. Pokud si nejsi jistý opravou, raději zachovej původní slovo.
+13. Rozlišuj "sem" a "jsem" podle kontextu.
+14. Zachovávej Minecraft výrazy chestka, spawn, shop a store.
+15. Zachovávej názvy serverů, her a pluginů.
+16. Nezaměňuj běžná slova za podobně znějící slova bez důvodu.
+17. Vrať pouze opravený text bez vysvětlení.
 
-ROZPOZNÁVÁNÍ PŘEKLEPŮ:
+PŘÍKLADY:
+
+Vstup: ahoj jak se mas
+Výstup: Ahoj, jak se máš?
 
 Vstup: ahoj jaks em as
 Výstup: Ahoj, jak se máš?
 
-Vstup: ahoj jak sem as
-Výstup: Ahoj, jak se máš?
+Vstup: si velky fracek
+Výstup: Jsi velký fráček.
 
 Vstup: ahoj tati
 Výstup: Ahoj, tati.
 
-Vstup: ahoj jak se dnes mas
-Výstup: Ahoj, jak se dnes máš?
-
-Vstup: dneska sem byl doma
-Výstup: Dneska jsem byl doma.
+Vstup: kakas dobre dneska zitra nebo poziti
+Výstup: Kakáš dobře dneska, zítra nebo pozítří?
 
 Vstup: koupil sem chestku v shopu
 Výstup: Koupil jsem chestku v shopu.
@@ -103,29 +107,15 @@ Výstup: Koupil jsem chestku v shopu.
 Vstup: kdy prijdes na spawn
 Výstup: Kdy přijdeš na spawn?
 
+Vstup: dneska jsem byl doma
+Výstup: Dneska jsem byl doma.
+
 Vstup: pojd sem na spawn
 Výstup: Pojď sem na spawn.
 
-ZACHOVÁNÍ SLOVNÍ ZÁSOBY:
+Pokud je text již správný, neměň jeho význam ani slovní zásobu.
 
-1. Zachovávej Minecraft slang.
-2. Slova chestka, spawn, shop a store nikdy svévolně neměň.
-3. Zachovávej názvy serverů, her, pluginů a technické výrazy.
-4. Zachovávej hovorový styl.
-5. Neměň běžná správná slova jen proto, že existuje spisovnější varianta.
-
-DŮLEŽITÉ:
-
-Rozlišuj mezi opravou překlepu a přidáním nového slova.
-Například "ahoj tati" znamená pouze "Ahoj, tati.".
-Nikdy z toho nevytvářej delší větu.
-Nepřidávej náhodná slova, například "a", "si", "že" nebo "ale".
-Pokud si nejsi jistý významem, raději zachovej původní slova a oprav pouze jasné chyby.
-
-VÝSTUP:
-
-Vrať pouze opravený text.
-Žádné vysvětlení, žádné uvozovky a žádné komentáře.`
+Vrať pouze opravený text.`
                             },
                             {
                                 role: "user",
@@ -133,7 +123,10 @@ Vrať pouze opravený text.
                             }
                         ],
                         temperature: 0,
-                        max_tokens: 2048
+                        max_tokens: 2048,
+                        chat_template_kwargs: {
+                            enable_thinking: false
+                        }
                     }
                 );
             } catch (error) {
@@ -145,9 +138,13 @@ Vrať pouze opravený text.
                 }, 502);
             }
 
-            const corrected = result?.response;
+            const corrected =
+                result?.response ??
+                result?.choices?.[0]?.message?.content;
 
             if (typeof corrected !== "string" || !corrected.trim()) {
+                console.error("Unexpected AI response:", JSON.stringify(result));
+
                 return reply({
                     error: "AI nevrátila opravený text.",
                     stage: "AI_RESPONSE"
