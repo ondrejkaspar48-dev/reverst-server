@@ -5,6 +5,10 @@
   "main": "./index.js",
   "compatibility_date": "2026-11-20",
   "workers_dev": true,
+  "preview_urls": false,
+  "ai": {
+    "binding": "AI"
+  },
   "ratelimits": [
     {
       "name": "IP_LIMITER",
