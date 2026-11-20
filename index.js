@@ -78,10 +78,10 @@ Vrať pouze opravený text bez vysvětlování.`
                 correctedText: corrected.trim()
             });
 
-        } catch {
-            return reply({
-                error: "Nepodařilo se zpracovat text."
-            }, 500);
-        }
-    }
-};
+} catch (error) {
+    console.error("ReversT AI error:", error);
+
+    return reply({
+        error: "Nepodařilo se zpracovat text."
+    }, 500);
+}
