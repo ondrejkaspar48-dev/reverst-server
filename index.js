@@ -24,6 +24,7 @@ export default {
         }
 
         try {
+            // Omezení počtu požadavků
             const ip = request.headers.get("CF-Connecting-IP") || "unknown";
             const { success } = await env.IP_LIMITER.limit({ key: ip });
 
@@ -33,6 +34,7 @@ export default {
                 }, 429);
             }
 
+            // Kontrola vstupního textu
             const body = await request.json();
             const text = body.text;
 
@@ -44,6 +46,7 @@ export default {
                 return reply({ error: "Text je příliš dlouhý." }, 400);
             }
 
+            // Kontrola připojení AI
             if (!env.AI) {
                 console.error("AI binding is missing.");
 
@@ -53,11 +56,12 @@ export default {
                 }, 500);
             }
 
+            // Spuštění AI
             let result;
 
             try {
                 result = await env.AI.run(
-                    "@cf/meta/llama-3.1-8b-instruct",
+                    "@cf/meta/llama-3.1-8b-instruct-fast",
                     {
                         messages: [
                             {
@@ -88,6 +92,7 @@ Vrať pouze opravený text bez vysvětlování.`
                 }, 502);
             }
 
+            // Kontrola odpovědi AI
             const corrected = result?.response;
 
             if (typeof corrected !== "string" || !corrected.trim()) {
