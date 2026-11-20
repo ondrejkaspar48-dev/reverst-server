@@ -3,6 +3,7 @@ export default {
     async fetch(request, env) {
         const headers = {
             "Content-Type": "application/json",
+            "Cache-Control": "no-store",
             "Access-Control-Allow-Origin": "*",
             "Access-Control-Allow-Methods": "POST, OPTIONS",
             "Access-Control-Allow-Headers": "Content-Type"
@@ -20,6 +21,22 @@ export default {
 
         if (request.method !== "POST") {
             return reply({ error: "Použij POST." }, 405);
+        }
+
+        // Základní omezení počtu požadavků
+        try {
+            const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+            const { success } = await env.IP_LIMITER.limit({ key: ip });
+
+            if (!success) {
+                return reply({
+                    error: "Dosáhl jsi limitu. Zkus to později."
+                }, 429);
+            }
+        } catch {
+            return reply({
+                error: "Server není správně nakonfigurován."
+            }, 500);
         }
 
         if (!env.GROQ_API_KEY) {
