@@ -24,7 +24,6 @@ export default {
         }
 
         try {
-            // Omezení počtu požadavků
             const ip = request.headers.get("CF-Connecting-IP") || "unknown";
             const { success } = await env.IP_LIMITER.limit({ key: ip });
 
@@ -34,7 +33,6 @@ export default {
                 }, 429);
             }
 
-            // Kontrola vstupního textu
             const body = await request.json();
             const text = body.text;
 
@@ -46,9 +44,8 @@ export default {
                 return reply({ error: "Text je příliš dlouhý." }, 400);
             }
 
-            // Kontrola AI bindingu
             if (!env.AI) {
-                console.error("ReversT: AI binding is missing.");
+                console.error("AI binding is missing.");
 
                 return reply({
                     error: "AI není správně připojena.",
@@ -56,7 +53,6 @@ export default {
                 }, 500);
             }
 
-            // Zpracování textu pomocí AI
             let result;
 
             try {
@@ -84,7 +80,7 @@ Vrať pouze opravený text bez vysvětlování.`
                     }
                 );
             } catch (error) {
-                console.error("ReversT AI invocation failed:", error);
+                console.error("AI invocation failed:", error);
 
                 return reply({
                     error: "AI se nepodařilo spustit.",
@@ -95,7 +91,7 @@ Vrať pouze opravený text bez vysvětlování.`
             const corrected = result?.response;
 
             if (typeof corrected !== "string" || !corrected.trim()) {
-                console.error("ReversT: AI returned an empty response.");
+                console.error("AI returned an empty response.");
 
                 return reply({
                     error: "AI nevrátila opravený text.",
@@ -108,7 +104,7 @@ Vrať pouze opravený text bez vysvětlování.`
             });
 
         } catch (error) {
-            console.error("ReversT AI error:", error);
+            console.error("ReversT error:", error);
 
             return reply({
                 error: "Nepodařilo se zpracovat text.",
