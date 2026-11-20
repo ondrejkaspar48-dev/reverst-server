@@ -34,7 +34,7 @@ export default {
                 }, 429);
             }
 
-            // Kontrola vstupního textu
+            // Kontrola textu
             const body = await request.json();
             const text = body.text;
 
@@ -46,7 +46,6 @@ export default {
                 return reply({ error: "Text je příliš dlouhý." }, 400);
             }
 
-            // Kontrola AI
             if (!env.AI) {
                 console.error("AI binding is missing.");
 
@@ -56,7 +55,7 @@ export default {
                 }, 500);
             }
 
-            // Spuštění korektury
+            // Korektura
             let result;
 
             try {
@@ -66,46 +65,51 @@ export default {
                         messages: [
                             {
                                 role: "system",
-                                content: `Jsi profesionální korektor českého jazyka.
+                                content: `Jsi přesný český korektor. Nejsi přepisovač ani spisovatel.
 
-Tvým úkolem je důkladně opravovat:
-- pravopisné chyby,
-- gramatické chyby,
-- nesprávné tvary slov,
-- interpunkci,
-- překlepy,
-- chybějící nebo nadbytečná slova.
+TVŮJ ÚKOL:
+Oprav pouze skutečné pravopisné, gramatické a interpunkční chyby.
 
-DŮLEŽITÁ PRAVIDLA:
+NEJDŮLEŽITĚJŠÍ PRAVIDLA:
 
-1. Opravuj běžnou hovorovou češtinu do spisovné češtiny.
-2. Pokud je "sem" použito jako nespisovná náhrada slovesa "jsem", oprav ho na "jsem".
-3. Rozlišuj význam slov podle kontextu. Například "pojď sem" je správně a nesmíš to změnit.
-4. Zachovávej původní význam a styl autora.
-5. Zachovávej herní slang a názvy.
-6. Výrazy chestka, spawn, shop a store vždy zachovej přesně.
-7. Neměň názvy her, serverů, pluginů ani technické výrazy.
-8. Nevymýšlej žádné nové informace.
-9. Pokud je věta správně, zbytečně ji nepřepisuj.
-10. Vrať pouze opravený text bez vysvětlování.
+1. Zachovej původní význam každé věty.
+2. Zachovej původní slovní zásobu a pořadí slov, pokud oprava chyby nevyžaduje změnu.
+3. Nikdy nepřidávej slova jen proto, aby věta zněla přirozeněji.
+4. Nikdy neodebírej slova, která jsou v původním textu správně.
+5. Nepřidávej například slovo "si", pokud v původním textu není.
+6. Opravuj nespisovné tvary, pokud jde o skutečnou gramatickou chybu.
+7. Rozlišuj slovo "sem" podle kontextu:
+   - "Dneska sem byl doma." → "Dneska jsem byl doma."
+   - "Pojď sem." → "Pojď sem."
+8. Zachovávej hovorový styl autora, pokud není potřeba opravit gramatickou chybu.
+9. Zachovávej Minecraft slang a herní výrazy.
+10. Výrazy chestka, spawn, shop a store zachovávej přesně.
+11. Neměň názvy serverů, her, pluginů ani technické výrazy.
+12. Nepřidávej vysvětlení, komentáře ani uvozovky.
+13. Pokud je text správně, vrať ho beze změny.
 
 PŘÍKLADY:
 
-"Ahoj dneska sem byl na spawnu."
-→ "Ahoj, dneska jsem byl na spawnu."
+Vstup: Ahoj dneska sem byl na spawnu.
+Výstup: Ahoj, dneska jsem byl na spawnu.
 
-"Koupil sem si chestku v shopu."
-→ "Koupil jsem si chestku v shopu."
+Vstup: Koupil sem chestku v shopu.
+Výstup: Koupil jsem chestku v shopu.
 
-"Pojď sem na spawn."
-→ "Pojď sem na spawn."`
+Vstup: Pojď sem na spawn.
+Výstup: Pojď sem na spawn.
+
+Vstup: Dneska jsem byl na spawnu.
+Výstup: Dneska jsem byl na spawnu.
+
+Vrať pouze opravený text.`
                             },
                             {
                                 role: "user",
                                 content: text
                             }
                         ],
-                        temperature: 0.1,
+                        temperature: 0,
                         max_tokens: 2048
                     }
                 );
@@ -118,7 +122,6 @@ PŘÍKLADY:
                 }, 502);
             }
 
-            // Kontrola výsledku
             const corrected = result?.response;
 
             if (typeof corrected !== "string" || !corrected.trim()) {
