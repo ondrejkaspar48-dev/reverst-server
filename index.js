@@ -55,63 +55,58 @@ export default {
 
             try {
                 result = await env.AI.run(
-                    "@cf/google/gemma-4-26b-a4b-it",
+                    "@cf/meta/llama-3.1-8b-instruct-fast",
                     {
                         messages: [
                             {
                                 role: "system",
-                                content: `Jsi přesný český korektor aplikace ReversT.
+                                content: `Jsi přesný český korektor.
 
-Tvým úkolem je opravit text podle toho, co autor pravděpodobně zamýšlel napsat.
+Tvým úkolem je opravit pravopis, gramatiku, diakritiku a interpunkci.
 
-PRAVIDLA:
+DŮLEŽITÁ PRAVIDLA:
 
-1. Opravuj český pravopis, gramatiku a diakritiku.
-2. Opravuj jasné překlepy a přehozená písmena.
-3. Rozpoznávej slova napsaná dohromady nebo nesprávně rozdělená.
-4. Rozpoznávej význam celé věty, nejen jednotlivá slova.
-5. Doplňuj správnou interpunkci.
-6. Na začátku věty používej velké písmeno.
-7. Otázky zakončuj otazníkem.
-8. Zachovávej původní význam a styl autora.
-9. Zachovávej hovorovou češtinu.
-10. Nepřidávej nová slova ani pokračování vět.
-11. Neměň správná slova.
-12. Pokud si nejsi jistý opravou, raději zachovej původní slovo.
-13. Rozlišuj "sem" a "jsem" podle kontextu.
-14. Zachovávej Minecraft výrazy chestka, spawn, shop a store.
-15. Zachovávej názvy serverů, her a pluginů.
-16. Nezaměňuj běžná slova za podobně znějící slova bez důvodu.
-17. Vrať pouze opravený text bez vysvětlení.
+1. Na začátku každé věty používej velké písmeno.
+2. Doplňuj správnou českou diakritiku.
+3. Doplňuj čárky mezi větami a ve větách.
+4. Na konci oznamovací věty doplň tečku, pokud chybí.
+5. Na konci otázky doplň otazník.
+6. Rozpoznávej otázky podle jejich významu, nejen podle slovosledu.
+7. Zachovávej původní význam textu.
+8. Zachovávej původní slovní zásobu.
+9. Nepřidávej slova, která autor nenapsal.
+10. Neodebírej slova, která jsou správná.
+11. Nikdy nepřidávej například slovo "si", pokud v textu není.
+12. Rozlišuj "sem" a "jsem" podle kontextu.
+13. Zachovávej hovorový styl autora.
+14. Zachovávej Minecraft slang a herní výrazy.
+15. Výrazy chestka, spawn, shop a store zachovávej přesně.
+16. Neměň názvy serverů, her, pluginů ani technické výrazy.
+17. Nepřidávej vysvětlení ani komentáře.
+18. Vrať pouze opravený text.
 
 PŘÍKLADY:
 
 Vstup: ahoj jak se mas
 Výstup: Ahoj, jak se máš?
 
-Vstup: ahoj jaks em as
-Výstup: Ahoj, jak se máš?
+Vstup: dneska jsem byl doma
+Výstup: Dneska jsem byl doma.
 
-Vstup: si velky fracek
-Výstup: Jsi velký fráček.
+Vstup: kdy prijdes
+Výstup: Kdy přijdeš?
 
-Vstup: ahoj tati
-Výstup: Ahoj, tati.
-
-Vstup: kakas dobre dneska zitra nebo poziti
-Výstup: Kakáš dobře dneska, zítra nebo pozítří?
+Vstup: ahoj dneska sem byl na spawnu
+Výstup: Ahoj, dneska jsem byl na spawnu.
 
 Vstup: koupil sem chestku v shopu
 Výstup: Koupil jsem chestku v shopu.
 
-Vstup: kdy prijdes na spawn
-Výstup: Kdy přijdeš na spawn?
-
-Vstup: dneska jsem byl doma
-Výstup: Dneska jsem byl doma.
-
 Vstup: pojd sem na spawn
 Výstup: Pojď sem na spawn.
+
+Vstup: Dneska jsem byl na spawnu.
+Výstup: Dneska jsem byl na spawnu.
 
 Pokud je text již správný, neměň jeho význam ani slovní zásobu.
 
@@ -123,10 +118,7 @@ Vrať pouze opravený text.`
                             }
                         ],
                         temperature: 0,
-                        max_tokens: 2048,
-                        chat_template_kwargs: {
-                            enable_thinking: false
-                        }
+                        max_tokens: 2048
                     }
                 );
             } catch (error) {
@@ -138,13 +130,9 @@ Vrať pouze opravený text.`
                 }, 502);
             }
 
-            const corrected =
-                result?.response ??
-                result?.choices?.[0]?.message?.content;
+            const corrected = result?.response;
 
             if (typeof corrected !== "string" || !corrected.trim()) {
-                console.error("Unexpected AI response:", JSON.stringify(result));
-
                 return reply({
                     error: "AI nevrátila opravený text.",
                     stage: "AI_RESPONSE"
