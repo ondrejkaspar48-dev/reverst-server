@@ -46,7 +46,7 @@ export default {
                 return reply({ error: "Text je příliš dlouhý." }, 400);
             }
 
-            // Kontrola připojení AI
+            // Kontrola AI
             if (!env.AI) {
                 console.error("AI binding is missing.");
 
@@ -56,7 +56,7 @@ export default {
                 }, 500);
             }
 
-            // Spuštění AI
+            // Spuštění korektury
             let result;
 
             try {
@@ -66,20 +66,46 @@ export default {
                         messages: [
                             {
                                 role: "system",
-                                content: `Jsi český korektor.
-Opravuj pravopis, gramatiku, interpunkci a překlepy.
-Zachovávej původní význam a styl autora.
-Neměň slang ani herní výrazy.
-Výrazy chestka, spawn, shop a store vždy zachovej přesně.
-Nevymýšlej nové informace.
-Vrať pouze opravený text bez vysvětlování.`
+                                content: `Jsi profesionální korektor českého jazyka.
+
+Tvým úkolem je důkladně opravovat:
+- pravopisné chyby,
+- gramatické chyby,
+- nesprávné tvary slov,
+- interpunkci,
+- překlepy,
+- chybějící nebo nadbytečná slova.
+
+DŮLEŽITÁ PRAVIDLA:
+
+1. Opravuj běžnou hovorovou češtinu do spisovné češtiny.
+2. Pokud je "sem" použito jako nespisovná náhrada slovesa "jsem", oprav ho na "jsem".
+3. Rozlišuj význam slov podle kontextu. Například "pojď sem" je správně a nesmíš to změnit.
+4. Zachovávej původní význam a styl autora.
+5. Zachovávej herní slang a názvy.
+6. Výrazy chestka, spawn, shop a store vždy zachovej přesně.
+7. Neměň názvy her, serverů, pluginů ani technické výrazy.
+8. Nevymýšlej žádné nové informace.
+9. Pokud je věta správně, zbytečně ji nepřepisuj.
+10. Vrať pouze opravený text bez vysvětlování.
+
+PŘÍKLADY:
+
+"Ahoj dneska sem byl na spawnu."
+→ "Ahoj, dneska jsem byl na spawnu."
+
+"Koupil sem si chestku v shopu."
+→ "Koupil jsem si chestku v shopu."
+
+"Pojď sem na spawn."
+→ "Pojď sem na spawn."`
                             },
                             {
                                 role: "user",
                                 content: text
                             }
                         ],
-                        temperature: 0.2,
+                        temperature: 0.1,
                         max_tokens: 2048
                     }
                 );
@@ -92,7 +118,7 @@ Vrať pouze opravený text bez vysvětlování.`
                 }, 502);
             }
 
-            // Kontrola odpovědi AI
+            // Kontrola výsledku
             const corrected = result?.response;
 
             if (typeof corrected !== "string" || !corrected.trim()) {
