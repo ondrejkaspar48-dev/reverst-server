@@ -37,5 +37,11 @@
         "period": 60
       }
     }
+  ],
+  "d1_databases": [
+    {
+      "binding": "LEARNING_DB",
+      "database_id": "6e5b9490-2f7e-42e7-92fd-f15f8117e32b"
+    }
   ]
 }
