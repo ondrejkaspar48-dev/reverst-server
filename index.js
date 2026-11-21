@@ -155,8 +155,6 @@ function escapeRegExp(value) {
 }
 
 // Použití osobního slovníku.
-// Delší fráze mají přednost před kratšími.
-// Nahrazuje pouze celé výrazy, ne části jiných slov.
 function applyPersonalDictionary(text, rules) {
     if (!rules || rules.length === 0) {
         return {
@@ -400,7 +398,7 @@ export default {
             // ==========================================
 
             if (action === "dictionary_list") {
-                const result = await env.LEARNING_DB
+                const dictionaryListResult = await env.LEARNING_DB
                     .prepare(`
                         SELECT
                             id,
@@ -414,7 +412,7 @@ export default {
 
                 return reply({
                     success: true,
-                    rules: result?.results || []
+                    rules: dictionaryListResult?.results || []
                 });
             }
 
@@ -438,7 +436,7 @@ export default {
                 }
 
                 try {
-                    const result = await env.LEARNING_DB
+                    const insertResult = await env.LEARNING_DB
                         .prepare(`
                             INSERT INTO personal_dictionary
                             (original_text, corrected_text)
@@ -452,7 +450,7 @@ export default {
 
                     return reply({
                         success: true,
-                        id: result?.meta?.last_row_id ?? null,
+                        id: insertResult?.meta?.last_row_id ?? null,
                         message: "Pravidlo bylo přidáno."
                     });
                 } catch (error) {
@@ -633,7 +631,6 @@ export default {
                 dictionaryRules
             );
 
-            // Text po použití osobního slovníku.
             const textForCorrection = dictionaryResultApplied.text;
 
             // ==========================================
@@ -694,9 +691,9 @@ export default {
             let learnedExamples = [];
             let learnedWords = [];
 
-            // Načítáme příklady podle původního textu,
-            // aby se zachovalo dosavadní chování učení.
-            const result = await env.LEARNING_DB
+            // Načtení celých schválených oprav.
+            // Proměnná má vlastní název, aby nekolidovala s AI result.
+            const examplesResult = await env.LEARNING_DB
                 .prepare(`
                     SELECT original_text, corrected_text
                     FROM learned_corrections
@@ -705,7 +702,7 @@ export default {
                 `)
                 .all();
 
-            const examples = result?.results || [];
+            const examples = examplesResult?.results || [];
 
             learnedExamples = examples
                 .map(example => ({
