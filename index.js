@@ -7,8 +7,6 @@ function tokenizeWords(value) {
 }
 
 // Konzervativní párování slov.
-// Učí pouze jednotlivé změny mezi jednoznačně stejnými slovy.
-// Vložená, odstraněná nebo víceslovně změněná místa ignoruje.
 function getConservativeWordPairs(original, corrected) {
     const originalWords = tokenizeWords(original);
     const correctedWords = tokenizeWords(corrected);
@@ -50,8 +48,6 @@ function getConservativeWordPairs(original, corrected) {
         }
     }
 
-    // Nejdelší rostoucí posloupnost jednoznačných shod.
-    // Pomáhá zachovat pořadí slov při vkládání a mazání.
     const tails = [];
     const tailIndices = [];
     const previous = new Array(candidates.length).fill(-1);
@@ -115,7 +111,6 @@ function getConservativeWordPairs(original, corrected) {
         const correctedGap =
             after.correctedIndex - before.correctedIndex - 1;
 
-        // Učíme pouze jednu změnu proti jednomu slovu.
         if (originalGap !== 1 || correctedGap !== 1) {
             continue;
         }
@@ -154,10 +149,101 @@ function getConservativeWordPairs(original, corrected) {
     return pairs.slice(0, 30);
 }
 
+// Escapování textu pro regulární výraz.
+function escapeRegExp(value) {
+    return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+// Použití osobního slovníku.
+// Delší fráze mají přednost před kratšími.
+// Nahrazuje pouze celé výrazy, ne části jiných slov.
+function applyPersonalDictionary(text, rules) {
+    if (!rules || rules.length === 0) {
+        return {
+            text,
+            used: 0
+        };
+    }
+
+    const sortedRules = [...rules]
+        .filter(rule =>
+            typeof rule.original_text === "string" &&
+            typeof rule.corrected_text === "string" &&
+            rule.original_text.length > 0
+        )
+        .sort((a, b) =>
+            b.original_text.length - a.original_text.length
+        );
+
+    if (sortedRules.length === 0) {
+        return {
+            text,
+            used: 0
+        };
+    }
+
+    const usedIds = new Set();
+
+    const alternatives = sortedRules
+        .map(rule => escapeRegExp(rule.original_text))
+        .join("|");
+
+    const expression = new RegExp(
+        `(?<![\\p{L}\\p{N}_])(?:${alternatives})(?![\\p{L}\\p{N}_])`,
+        "giu"
+    );
+
+    const result = text.replace(expression, match => {
+        const normalizedMatch = match.toLocaleLowerCase("cs-CZ");
+
+        const rule = sortedRules.find(item =>
+            item.original_text.toLocaleLowerCase("cs-CZ") === normalizedMatch
+        );
+
+        if (!rule) return match;
+
+        usedIds.add(rule.id);
+
+        return rule.corrected_text;
+    });
+
+    return {
+        text: result,
+        used: usedIds.size
+    };
+}
+
+// Kontrola vstupu pro osobní slovník.
+function validateDictionaryEntry(originalText, correctedText) {
+    if (
+        typeof originalText !== "string" ||
+        typeof correctedText !== "string"
+    ) {
+        return "Původní i opravený výraz musí být text.";
+    }
+
+    const original = originalText.trim();
+    const corrected = correctedText.trim();
+
+    if (!original || !corrected) {
+        return "Obě pole musí být vyplněná.";
+    }
+
+    if (original.length > 200 || corrected.length > 200) {
+        return "Výraz může mít maximálně 200 znaků.";
+    }
+
+    if (original === corrected) {
+        return "Původní a opravený výraz jsou stejné.";
+    }
+
+    return null;
+}
+
 export default {
     async fetch(request, env) {
         const headers = {
-            "Content-Type": "application/json",
+            "Content-Type": "application/json; charset=utf-8",
             "Cache-Control": "no-store",
             "Access-Control-Allow-Origin": "*",
             "Access-Control-Allow-Methods": "POST, OPTIONS",
@@ -202,6 +288,12 @@ export default {
             const body = await request.json();
             const action = body?.action || "correct";
 
+            if (!env.LEARNING_DB) {
+                return reply({
+                    error: "Databáze učení není připojena."
+                }, 500);
+            }
+
             // ==========================================
             // 1. ULOŽENÍ SCHVÁLENÉ OPRAVY A SLOV
             // ==========================================
@@ -230,12 +322,6 @@ export default {
                     }, 400);
                 }
 
-                if (!env.LEARNING_DB) {
-                    return reply({
-                        error: "Databáze učení není připojena."
-                    }, 500);
-                }
-
                 const original = originalText.trim();
                 const corrected = correctedText.trim();
 
@@ -248,7 +334,6 @@ export default {
                     });
                 }
 
-                // Kontrola, zda už celá oprava existuje.
                 const existing = await env.LEARNING_DB
                     .prepare(`
                         SELECT id
@@ -275,7 +360,6 @@ export default {
                     correctionSaved = true;
                 }
 
-                // Bezpečné rozpoznání jednotlivých změněných slov.
                 const wordPairs = getConservativeWordPairs(
                     original,
                     corrected
@@ -283,8 +367,6 @@ export default {
 
                 let wordPairsSaved = 0;
 
-                // Uložení jednotlivých slov.
-                // Při opakování stejné opravy se zvýší occurrences.
                 for (const pair of wordPairs) {
                     await env.LEARNING_DB
                         .prepare(`
@@ -314,7 +396,202 @@ export default {
             }
 
             // ==========================================
-            // 2. KONTROLA AKCE
+            // 2. OSOBNÍ SLOVNÍK – NAČTENÍ PRAVIDEL
+            // ==========================================
+
+            if (action === "dictionary_list") {
+                const result = await env.LEARNING_DB
+                    .prepare(`
+                        SELECT
+                            id,
+                            original_text AS originalText,
+                            corrected_text AS correctedText,
+                            created_at AS createdAt
+                        FROM personal_dictionary
+                        ORDER BY created_at DESC, id DESC
+                    `)
+                    .all();
+
+                return reply({
+                    success: true,
+                    rules: result?.results || []
+                });
+            }
+
+            // ==========================================
+            // 3. OSOBNÍ SLOVNÍK – PŘIDÁNÍ PRAVIDLA
+            // ==========================================
+
+            if (action === "dictionary_add") {
+                const originalText = body?.originalText;
+                const correctedText = body?.correctedText;
+
+                const validationError = validateDictionaryEntry(
+                    originalText,
+                    correctedText
+                );
+
+                if (validationError) {
+                    return reply({
+                        error: validationError
+                    }, 400);
+                }
+
+                try {
+                    const result = await env.LEARNING_DB
+                        .prepare(`
+                            INSERT INTO personal_dictionary
+                            (original_text, corrected_text)
+                            VALUES (?, ?)
+                        `)
+                        .bind(
+                            originalText.trim(),
+                            correctedText.trim()
+                        )
+                        .run();
+
+                    return reply({
+                        success: true,
+                        id: result?.meta?.last_row_id ?? null,
+                        message: "Pravidlo bylo přidáno."
+                    });
+                } catch (error) {
+                    if (
+                        String(error?.message || error)
+                            .toLowerCase()
+                            .includes("unique")
+                    ) {
+                        return reply({
+                            error: "Tento původní výraz už ve slovníku existuje."
+                        }, 409);
+                    }
+
+                    throw error;
+                }
+            }
+
+            // ==========================================
+            // 4. OSOBNÍ SLOVNÍK – ÚPRAVA PRAVIDLA
+            // ==========================================
+
+            if (action === "dictionary_update") {
+                const id = Number(body?.id);
+                const originalText = body?.originalText;
+                const correctedText = body?.correctedText;
+
+                if (!Number.isSafeInteger(id) || id <= 0) {
+                    return reply({
+                        error: "Neplatné ID pravidla."
+                    }, 400);
+                }
+
+                const validationError = validateDictionaryEntry(
+                    originalText,
+                    correctedText
+                );
+
+                if (validationError) {
+                    return reply({
+                        error: validationError
+                    }, 400);
+                }
+
+                const existing = await env.LEARNING_DB
+                    .prepare(`
+                        SELECT id
+                        FROM personal_dictionary
+                        WHERE id = ?
+                        LIMIT 1
+                    `)
+                    .bind(id)
+                    .first();
+
+                if (!existing) {
+                    return reply({
+                        error: "Pravidlo nebylo nalezeno."
+                    }, 404);
+                }
+
+                try {
+                    await env.LEARNING_DB
+                        .prepare(`
+                            UPDATE personal_dictionary
+                            SET
+                                original_text = ?,
+                                corrected_text = ?
+                            WHERE id = ?
+                        `)
+                        .bind(
+                            originalText.trim(),
+                            correctedText.trim(),
+                            id
+                        )
+                        .run();
+
+                    return reply({
+                        success: true,
+                        message: "Pravidlo bylo upraveno."
+                    });
+                } catch (error) {
+                    if (
+                        String(error?.message || error)
+                            .toLowerCase()
+                            .includes("unique")
+                    ) {
+                        return reply({
+                            error: "Tento původní výraz už ve slovníku existuje."
+                        }, 409);
+                    }
+
+                    throw error;
+                }
+            }
+
+            // ==========================================
+            // 5. OSOBNÍ SLOVNÍK – SMAZÁNÍ PRAVIDLA
+            // ==========================================
+
+            if (action === "dictionary_delete") {
+                const id = Number(body?.id);
+
+                if (!Number.isSafeInteger(id) || id <= 0) {
+                    return reply({
+                        error: "Neplatné ID pravidla."
+                    }, 400);
+                }
+
+                const existing = await env.LEARNING_DB
+                    .prepare(`
+                        SELECT id
+                        FROM personal_dictionary
+                        WHERE id = ?
+                        LIMIT 1
+                    `)
+                    .bind(id)
+                    .first();
+
+                if (!existing) {
+                    return reply({
+                        error: "Pravidlo nebylo nalezeno."
+                    }, 404);
+                }
+
+                await env.LEARNING_DB
+                    .prepare(`
+                        DELETE FROM personal_dictionary
+                        WHERE id = ?
+                    `)
+                    .bind(id)
+                    .run();
+
+                return reply({
+                    success: true,
+                    message: "Pravidlo bylo smazáno."
+                });
+            }
+
+            // ==========================================
+            // 6. KONTROLA AKCE KOREKTURY
             // ==========================================
 
             if (action !== "correct") {
@@ -338,7 +615,29 @@ export default {
             }
 
             // ==========================================
-            // 3. VYHLEDÁNÍ PODOBNÝCH NAUČENÝCH OPRAV
+            // 7. NAČTENÍ A POUŽITÍ OSOBNÍHO SLOVNÍKU
+            // ==========================================
+
+            const dictionaryResult = await env.LEARNING_DB
+                .prepare(`
+                    SELECT id, original_text, corrected_text
+                    FROM personal_dictionary
+                    ORDER BY LENGTH(original_text) DESC, id ASC
+                `)
+                .all();
+
+            const dictionaryRules = dictionaryResult?.results || [];
+
+            const dictionaryResultApplied = applyPersonalDictionary(
+                text.trim(),
+                dictionaryRules
+            );
+
+            // Text po použití osobního slovníku.
+            const textForCorrection = dictionaryResultApplied.text;
+
+            // ==========================================
+            // 8. VYHLEDÁNÍ PODOBNÝCH NAUČENÝCH OPRAV
             // ==========================================
 
             function normalize(value) {
@@ -395,59 +694,58 @@ export default {
             let learnedExamples = [];
             let learnedWords = [];
 
-            if (env.LEARNING_DB) {
-                // Načtení celých schválených oprav.
-                const result = await env.LEARNING_DB
-                    .prepare(`
-                        SELECT original_text, corrected_text
-                        FROM learned_corrections
-                        ORDER BY created_at DESC
-                        LIMIT 200
-                    `)
-                    .all();
+            // Načítáme příklady podle původního textu,
+            // aby se zachovalo dosavadní chování učení.
+            const result = await env.LEARNING_DB
+                .prepare(`
+                    SELECT original_text, corrected_text
+                    FROM learned_corrections
+                    ORDER BY created_at DESC
+                    LIMIT 200
+                `)
+                .all();
 
-                const examples = result?.results || [];
+            const examples = result?.results || [];
 
-                learnedExamples = examples
-                    .map(example => ({
-                        original: example.original_text,
-                        corrected: example.corrected_text,
-                        score: similarity(
-                            text,
-                            example.original_text
-                        )
-                    }))
-                    .filter(example => example.score >= 0.30)
-                    .sort((a, b) => b.score - a.score)
-                    .slice(0, 4);
-
-                // Načtení naučených jednotlivých slov.
-                const wordsResult = await env.LEARNING_DB
-                    .prepare(`
-                        SELECT original_word, corrected_word, occurrences
-                        FROM learned_words
-                        ORDER BY occurrences DESC
-                        LIMIT 300
-                    `)
-                    .all();
-
-                const inputWords = new Set(
-                    tokenizeWords(text).map(word =>
-                        word.toLocaleLowerCase("cs-CZ")
+            learnedExamples = examples
+                .map(example => ({
+                    original: example.original_text,
+                    corrected: example.corrected_text,
+                    score: similarity(
+                        textForCorrection,
+                        example.original_text
                     )
-                );
+                }))
+                .filter(example => example.score >= 0.30)
+                .sort((a, b) => b.score - a.score)
+                .slice(0, 4);
 
-                learnedWords = (wordsResult?.results || [])
-                    .filter(word =>
-                        inputWords.has(
-                            word.original_word.toLocaleLowerCase("cs-CZ")
-                        )
+            // Načtení naučených jednotlivých slov.
+            const wordsResult = await env.LEARNING_DB
+                .prepare(`
+                    SELECT original_word, corrected_word, occurrences
+                    FROM learned_words
+                    ORDER BY occurrences DESC
+                    LIMIT 300
+                `)
+                .all();
+
+            const inputWords = new Set(
+                tokenizeWords(textForCorrection).map(word =>
+                    word.toLocaleLowerCase("cs-CZ")
+                )
+            );
+
+            learnedWords = (wordsResult?.results || [])
+                .filter(word =>
+                    inputWords.has(
+                        word.original_word.toLocaleLowerCase("cs-CZ")
                     )
-                    .slice(0, 30);
-            }
+                )
+                .slice(0, 30);
 
             // ==========================================
-            // 4. PRAVIDLA KOREKTURY
+            // 9. PRAVIDLA KOREKTURY
             // ==========================================
 
             const systemPrompt = `
@@ -684,7 +982,21 @@ ignoruj ji.
 Naučená slova nesmí měnit osoby, čísla,
 čas, zápor ani význam věty.
 
-13. POVINNÁ ZÁVĚREČNÁ KONTROLA
+13. OSOBNÍ SLOVNÍK REVERS T
+
+Text, který dostaneš ke korektuře, už může obsahovat
+výrazy nahrazené osobním slovníkem uživatele.
+
+Tyto náhrady jsou výslovným přáním uživatele.
+
+Zachovávej je přesně.
+Nevracej je na původní výraz.
+Neměň jejich význam ani zápis.
+
+Osobní slovník má přednost před běžnými pravopisnými
+doporučeními, pokud jde o konkrétní uživatelské pravidlo.
+
+14. POVINNÁ ZÁVĚREČNÁ KONTROLA
 
 Před odesláním zkontroluj:
 
@@ -700,6 +1012,7 @@ Před odesláním zkontroluj:
 10. Zůstalo stejné pořadí událostí?
 11. Zůstala zachována nejistota a možnost?
 12. Zůstaly zachovány herní výrazy a vulgarismy?
+13. Zůstaly zachovány náhrady z osobního slovníku?
 
 Pokud zjistíš významovou změnu,
 vrať se k původní formulaci.
@@ -713,7 +1026,7 @@ uvozovky ani hodnocení.
 `;
 
             // ==========================================
-            // 5. PŘÍPRAVA NAUČENÝCH PŘÍKLADŮ
+            // 10. PŘÍPRAVA NAUČENÝCH PŘÍKLADŮ
             // ==========================================
 
             const learningContext = learnedExamples.length
@@ -751,8 +1064,24 @@ odpovídá kontextu aktuální věty.
 `
                 : "Zatím nejsou k dispozici žádná relevantní naučená slova.";
 
+            const dictionaryContext = dictionaryRules.length
+                ? `
+OSOBNÍ SLOVNÍK:
+
+Následující náhrady už byly aplikovány přímo na vstupní text.
+Nesmíš je vracet zpět ani měnit.
+
+${JSON.stringify(
+    dictionaryRules.map(rule => ({
+        original: rule.original_text,
+        corrected: rule.corrected_text
+    }))
+)}
+`
+                : "Osobní slovník zatím neobsahuje žádná pravidla.";
+
             // ==========================================
-            // 6. AI KOREKTURA
+            // 11. AI KOREKTURA
             // ==========================================
 
             const result = await env.AI.run(
@@ -777,7 +1106,13 @@ odpovídá kontextu aktuální věty.
                         },
                         {
                             role: "user",
-                            content: text.trim()
+                            content:
+                                "OSOBNÍ SLOVNÍK:\n" +
+                                dictionaryContext
+                        },
+                        {
+                            role: "user",
+                            content: textForCorrection
                         }
                     ],
                     temperature: 0,
@@ -801,12 +1136,13 @@ odpovídá kontextu aktuální věty.
             return reply({
                 correctedText: corrected.trim(),
                 learningExamplesUsed: learnedExamples.length,
-                learnedWordsUsed: learnedWords.length
+                learnedWordsUsed: learnedWords.length,
+                dictionaryRulesUsed: dictionaryResultApplied.used
             });
 
         } catch (error) {
             return reply({
-                error: "Chyba při korektuře textu.",
+                error: "Chyba při zpracování požadavku.",
                 details: String(error?.message || error)
             }, 500);
         }
