@@ -1,3 +1,4 @@
+
 function tokenizeWords(value) {
     return Array.from(
         value.matchAll(/[\p{L}]+/gu),
@@ -426,7 +427,20 @@ const suspiciousWords = new Set([
     "mozna",
     "urcite",
     "vysledek",
-    "vysledky"
+    "vysledky",
+
+    // Doplněné tvary slovesa neřešit
+    "neresil",
+    "neresila",
+    "neresilo",
+    "neresili",
+    "neresily",
+    "neresim",
+    "neresis",
+    "neresi",
+    "neresime",
+    "neresite",
+    "neresit"
 ]);
 
 function hasSuspiciousWords(text) {
@@ -456,8 +470,7 @@ Zkontroluj zejména:
 - časování sloves;
 - shodu podmětu s přísudkem;
 - čárky;
-- interpunkci;
-- gramatické chyby.
+- interpunkci.
 
 DŮLEŽITÉ:
 
@@ -526,7 +539,9 @@ function similarity(first, second) {
 
     return common /
         Math.min(firstWords.size, secondWords.size);
-}// ==========================================
+}
+
+// ==========================================
 // ZÁVĚREČNÁ PRAVOPISNÁ KONTROLA
 // ==========================================
 
@@ -557,7 +572,20 @@ const knownOrthographicCorrections = new Map([
     ["mozna", "možná"],
     ["urcite", "určitě"],
     ["vysledek", "výsledek"],
-    ["vysledky", "výsledky"]
+    ["vysledky", "výsledky"],
+
+    // Doplněné tvary slovesa neřešit
+    ["neresil", "neřešil"],
+    ["neresila", "neřešila"],
+    ["neresilo", "neřešilo"],
+    ["neresili", "neřešili"],
+    ["neresily", "neřešily"],
+    ["neresim", "neřeším"],
+    ["neresis", "neřešíš"],
+    ["neresi", "neřeší"],
+    ["neresime", "neřešíme"],
+    ["neresite", "neřešíte"],
+    ["neresit", "neřešit"]
 ]);
 
 function applyFinalSpellCheck(originalText, correctedText) {
@@ -944,7 +972,9 @@ export default {
                     success: true,
                     message: "Pravidlo bylo smazáno."
                 });
-            }            // ==========================================
+            }
+
+            // ==========================================
             // 3. KOREKTURA – KONTROLA VSTUPU
             // ==========================================
 
