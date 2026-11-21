@@ -1,4 +1,159 @@
 
+function tokenizeWords(value) {
+    return Array.from(
+        value.matchAll(/[\p{L}]+/gu),
+        match => match[0]
+    );
+}
+
+// Konzervativní párování slov.
+// Učí pouze jednotlivé změny mezi jednoznačně stejnými slovy.
+// Vložená, odstraněná nebo víceslovně změněná místa ignoruje.
+function getConservativeWordPairs(original, corrected) {
+    const originalWords = tokenizeWords(original);
+    const correctedWords = tokenizeWords(corrected);
+
+    const normalizeWord = word =>
+        word.toLocaleLowerCase("cs-CZ");
+
+    function getUniquePositions(words) {
+        const positions = new Map();
+
+        words.forEach((word, index) => {
+            const key = normalizeWord(word);
+
+            if (positions.has(key)) {
+                positions.set(key, -1);
+            } else {
+                positions.set(key, index);
+            }
+        });
+
+        return positions;
+    }
+
+    const originalPositions = getUniquePositions(originalWords);
+    const correctedPositions = getUniquePositions(correctedWords);
+
+    const candidates = [];
+
+    for (const [word, originalIndex] of originalPositions) {
+        if (originalIndex < 0) continue;
+
+        const correctedIndex = correctedPositions.get(word);
+
+        if (correctedIndex !== undefined && correctedIndex >= 0) {
+            candidates.push({
+                originalIndex,
+                correctedIndex
+            });
+        }
+    }
+
+    // Nejdelší rostoucí posloupnost jednoznačných shod.
+    // Pomáhá zachovat pořadí slov při vkládání a mazání.
+    const tails = [];
+    const tailIndices = [];
+    const previous = new Array(candidates.length).fill(-1);
+
+    for (let i = 0; i < candidates.length; i++) {
+        const value = candidates[i].correctedIndex;
+
+        let left = 0;
+        let right = tails.length;
+
+        while (left < right) {
+            const middle = Math.floor((left + right) / 2);
+
+            if (tails[middle] < value) {
+                left = middle + 1;
+            } else {
+                right = middle;
+            }
+        }
+
+        if (left > 0) {
+            previous[i] = tailIndices[left - 1];
+        }
+
+        tails[left] = value;
+        tailIndices[left] = i;
+    }
+
+    const anchors = [];
+
+    if (tailIndices.length > 0) {
+        let index = tailIndices[tailIndices.length - 1];
+
+        while (index !== -1) {
+            anchors.push(candidates[index]);
+            index = previous[index];
+        }
+
+        anchors.reverse();
+    }
+
+    const boundaries = [
+        { originalIndex: -1, correctedIndex: -1 },
+        ...anchors,
+        {
+            originalIndex: originalWords.length,
+            correctedIndex: correctedWords.length
+        }
+    ];
+
+    const pairs = [];
+    const seen = new Set();
+
+    for (let i = 0; i < boundaries.length - 1; i++) {
+        const before = boundaries[i];
+        const after = boundaries[i + 1];
+
+        const originalGap =
+            after.originalIndex - before.originalIndex - 1;
+
+        const correctedGap =
+            after.correctedIndex - before.correctedIndex - 1;
+
+        // Učíme pouze jednu změnu proti jednomu slovu.
+        if (originalGap !== 1 || correctedGap !== 1) {
+            continue;
+        }
+
+        const originalWord =
+            originalWords[before.originalIndex + 1];
+
+        const correctedWord =
+            correctedWords[before.correctedIndex + 1];
+
+        if (!originalWord || !correctedWord) continue;
+
+        const originalKey = normalizeWord(originalWord);
+        const correctedKey = normalizeWord(correctedWord);
+
+        if (
+            originalKey === correctedKey ||
+            originalWord.length < 2 ||
+            correctedWord.length < 2
+        ) {
+            continue;
+        }
+
+        const pairKey = `${originalKey}|||${correctedKey}`;
+
+        if (seen.has(pairKey)) continue;
+
+        seen.add(pairKey);
+
+        pairs.push({
+            original: originalWord,
+            corrected: correctedWord
+        });
+    }
+
+    return pairs.slice(0, 30);
+}
+
 export default {
     async fetch(request, env) {
         const headers = {
@@ -48,7 +203,7 @@ export default {
             const action = body?.action || "correct";
 
             // ==========================================
-            // 1. ULOŽENÍ SCHVÁLENÉ OPRAVY
+            // 1. ULOŽENÍ SCHVÁLENÉ OPRAVY A SLOV
             // ==========================================
 
             if (action === "learn") {
@@ -88,11 +243,12 @@ export default {
                     return reply({
                         success: true,
                         saved: false,
+                        wordPairsSaved: 0,
                         message: "Text neobsahuje žádnou změnu."
                     });
                 }
 
-                // Kontrola duplicit
+                // Kontrola, zda už celá oprava existuje.
                 const existing = await env.LEARNING_DB
                     .prepare(`
                         SELECT id
@@ -104,26 +260,55 @@ export default {
                     .bind(original, corrected)
                     .first();
 
-                if (existing) {
-                    return reply({
-                        success: true,
-                        saved: false,
-                        message: "Tato oprava už je naučená."
-                    });
+                let correctionSaved = false;
+
+                if (!existing) {
+                    await env.LEARNING_DB
+                        .prepare(`
+                            INSERT INTO learned_corrections
+                            (original_text, corrected_text)
+                            VALUES (?, ?)
+                        `)
+                        .bind(original, corrected)
+                        .run();
+
+                    correctionSaved = true;
                 }
 
-                await env.LEARNING_DB
-                    .prepare(`
-                        INSERT INTO learned_corrections
-                        (original_text, corrected_text)
-                        VALUES (?, ?)
-                    `)
-                    .bind(original, corrected)
-                    .run();
+                // Bezpečné rozpoznání jednotlivých změněných slov.
+                const wordPairs = getConservativeWordPairs(
+                    original,
+                    corrected
+                );
+
+                let wordPairsSaved = 0;
+
+                // Uložení jednotlivých slov.
+                // Při opakování stejné opravy se zvýší occurrences.
+                for (const pair of wordPairs) {
+                    await env.LEARNING_DB
+                        .prepare(`
+                            INSERT INTO learned_words
+                            (original_word, corrected_word, occurrences)
+                            VALUES (?, ?, 1)
+                            ON CONFLICT(original_word, corrected_word)
+                            DO UPDATE SET
+                                occurrences = occurrences + 1
+                        `)
+                        .bind(
+                            pair.original,
+                            pair.corrected
+                        )
+                        .run();
+
+                    wordPairsSaved++;
+                }
 
                 return reply({
                     success: true,
-                    saved: true,
+                    saved: correctionSaved || wordPairsSaved > 0,
+                    correctionSaved,
+                    wordPairsSaved,
                     message: "Oprava byla uložena."
                 });
             }
@@ -208,8 +393,10 @@ export default {
             }
 
             let learnedExamples = [];
+            let learnedWords = [];
 
             if (env.LEARNING_DB) {
+                // Načtení celých schválených oprav.
                 const result = await env.LEARNING_DB
                     .prepare(`
                         SELECT original_text, corrected_text
@@ -233,6 +420,30 @@ export default {
                     .filter(example => example.score >= 0.30)
                     .sort((a, b) => b.score - a.score)
                     .slice(0, 4);
+
+                // Načtení naučených jednotlivých slov.
+                const wordsResult = await env.LEARNING_DB
+                    .prepare(`
+                        SELECT original_word, corrected_word, occurrences
+                        FROM learned_words
+                        ORDER BY occurrences DESC
+                        LIMIT 300
+                    `)
+                    .all();
+
+                const inputWords = new Set(
+                    tokenizeWords(text).map(word =>
+                        word.toLocaleLowerCase("cs-CZ")
+                    )
+                );
+
+                learnedWords = (wordsResult?.results || [])
+                    .filter(word =>
+                        inputWords.has(
+                            word.original_word.toLocaleLowerCase("cs-CZ")
+                        )
+                    )
+                    .slice(0, 30);
             }
 
             // ==========================================
@@ -456,7 +667,24 @@ pokud se významově neshoduje s aktuálním vstupem.
 Pokud příklad odporuje aktuálnímu textu,
 ignoruj ho.
 
-12. POVINNÁ ZÁVĚREČNÁ KONTROLA
+12. NAUČENÁ JEDNOTLIVÁ SLOVA
+
+Dostaneš-li seznam naučených dvojic slov,
+používej je jako pomoc při opravě stejných slov
+v podobném jazykovém kontextu.
+
+Každá dvojice obsahuje původní a opravené slovo.
+
+Neznamená to, že se slovo musí vždy změnit.
+Vždy zkontroluj kontext a význam.
+
+Pokud je naučená oprava v aktuální větě nevhodná,
+ignoruj ji.
+
+Naučená slova nesmí měnit osoby, čísla,
+čas, zápor ani význam věty.
+
+13. POVINNÁ ZÁVĚREČNÁ KONTROLA
 
 Před odesláním zkontroluj:
 
@@ -506,6 +734,23 @@ ${JSON.stringify(
 `
                 : "Zatím nejsou k dispozici žádné relevantní naučené příklady.";
 
+            const learnedWordsContext = learnedWords.length
+                ? `
+NAUČENÁ JEDNOTLIVÁ SLOVA:
+
+${JSON.stringify(
+    learnedWords.map(word => ({
+        original: word.original_word,
+        corrected: word.corrected_word,
+        occurrences: word.occurrences
+    }))
+)}
+
+Použij tato slova pouze tehdy, pokud jejich oprava
+odpovídá kontextu aktuální věty.
+`
+                : "Zatím nejsou k dispozici žádná relevantní naučená slova.";
+
             // ==========================================
             // 6. AI KOREKTURA
             // ==========================================
@@ -523,6 +768,12 @@ ${JSON.stringify(
                             content:
                                 "NAUČENÉ PŘÍKLADY:\n" +
                                 learningContext
+                        },
+                        {
+                            role: "user",
+                            content:
+                                "NAUČENÁ SLOVA:\n" +
+                                learnedWordsContext
                         },
                         {
                             role: "user",
@@ -549,7 +800,8 @@ ${JSON.stringify(
 
             return reply({
                 correctedText: corrected.trim(),
-                learningExamplesUsed: learnedExamples.length
+                learningExamplesUsed: learnedExamples.length,
+                learnedWordsUsed: learnedWords.length
             });
 
         } catch (error) {
